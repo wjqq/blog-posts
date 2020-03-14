@@ -3,11 +3,16 @@ const bodyParser = require('body-parser')
 const { createEventAdapter } = require('@slack/events-api')
 const { createMessageAdapter } = require('@slack/interactive-messages')
 const { WebClient } = require('@slack/web-api')
+const axios = require('axios')
+const request = require('request')
+const _ = require('lodash');
 
 const port = process.env.PORT || 3000
 const app = express()
 const token = process.env.SLACK_BOT_TOKEN
 const webClient = new WebClient(token)
+
+const webClients = [{"team":'TVDRL7B0C',"webClient":new WebClient('xoxb-999870249012-1002190822631-786spnSvC9ImiWjhXnKojm5M')}];
 
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET)
 const slackInteractions = createMessageAdapter(process.env.SLACK_SIGNING_SECRET)
@@ -18,18 +23,79 @@ app.use('/slack/actions', slackInteractions.expressMiddleware())
 app.use(bodyParser.urlencoded({extended: true}))
 app.use(bodyParser.json())
 
+//oauth:foreman
+app.get('/auth/redirect', (req, res) =>{
+    var options = {
+        uri: 'https://slack.com/api/oauth.v2.access?code='
+            +req.query.code+
+            '&client_id='+process.env.SLACK_CLIENT_ID+
+            '&client_secret='+process.env.SLACK_CLIENT_SECRET,
+            // '&redirect_uri='+process.env.REDIRECT_URI,
+        method: 'POST'
+    }
+    request(options, (error, response, body) => {
+        var JSONresponse = JSON.parse(body)
+        if (!JSONresponse.ok){
+            console.log(JSONresponse)
+            res.send("Error encountered: \n"+JSON.stringify(JSONresponse)).status(200).end()
+        }else{
+            console.log(JSONresponse)
+            res.send("Success!")
+        }
+    })
+});
+
+//slash command, not find any nodjs package for the command
+app.post('/slack/command', (req,res)=>{
+
+  var response_url = req.body.response_url;
+  simulateSearch(response_url);
+
+  console.log("ack");
+  res.send();
+});
+
+async function simulateSearch(response_url){
+  console.log("simulate the search....."+response_url);
+  await new Promise (resolve => {
+    setTimeout(resolve, 1000)
+  })
+
+  axios.post(response_url,{
+    "text": "Search DONE."
+  }).then((res) => {
+    console.log('success')
+  });
+}
+
 slackEvents.on('app_mention', async (event) => {
   try {
+
+    console.log(JSON.stringify(event));
+
     const mentionResponseBlock = { ...messageJsonBlock, ...{channel: event.channel}}
-    console.log(mentionResponseBlock)
-    const res = await webClient.chat.postMessage(mentionResponseBlock)
+    var client = webClient;
+    var clientsFound = _.filter(webClients, x => x.team === event.team);
+    if(clientsFound && clientsFound.length == 1){
+      client = clientsFound[0].webClient;
+      console.log("Find client for team : "+ event.team);
+    }else{
+      console.log("The app is owned by team: "+ event.team);
+    }
+    
+    const res = await client.chat.postMessage(mentionResponseBlock)
     console.log('Message sent: ', res.ts)
   } catch (e) {
+    console.log("ERR1");
+    console.log(e);
     console.log(JSON.stringify(e))
   }
 })
 
 slackInteractions.action({ actionId: 'open_modal_button' }, async (payload) => {
+
+  console.log(JSON.stringify(payload))
+
   try {
     await webClient.views.open({
         trigger_id: payload.trigger_id,
@@ -83,7 +149,7 @@ const messageJsonBlock = {
       },
       "accessory": {
         "type": "button",
-        "action_id": "open_modal_button", // We need to add this  
+        "action_id": "open_modal_button", // We need to add this
         "text": {
           "type": "plain_text",
           "text": "Launch",
@@ -97,7 +163,7 @@ const messageJsonBlock = {
 
 const modalJsonBlock = {
   "type": "modal",
-  "callback_id": "cute_animal_modal_submit", // We need to add this  
+  "callback_id": "cute_animal_modal_submit", // We need to add this
   "title": {
     "type": "plain_text",
     "text": "My App",
